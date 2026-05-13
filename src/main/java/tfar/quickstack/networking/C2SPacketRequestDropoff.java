@@ -4,11 +4,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
@@ -18,94 +18,70 @@ import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.wrapper.InvWrapper;
-import net.minecraftforge.network.NetworkEvent;
 import net.minecraftforge.network.PacketDistributor;
+import org.apache.commons.lang3.mutable.MutableInt;
 import tfar.quickstack.client.RendererCubeTarget;
 import tfar.quickstack.config.DropOffConfig;
 import tfar.quickstack.util.ItemStackUtils;
 import tfar.quickstack.util.SuccedableInventoryData;
 
-public class C2SPacketRequestDropoff {
-
-    private boolean ignoreHotbar;
-    private boolean dump;
-    private List<BlockEntityType<?>> teTypes = new ArrayList<>();
-    private int minSlotCount;
-    private int itemsCounter;
-
-    /**
-     * Leave public default constructor for Netty.
-     */
-    public C2SPacketRequestDropoff() {
-    }
+public record C2SPacketRequestDropoff(boolean ignoreHotbar, boolean dump, List<BlockEntityType<?>> teTypes,
+                                      int minSlotCount) implements C2SPacket {
 
     public C2SPacketRequestDropoff(FriendlyByteBuf buf) {
-        buf = new PacketBufferExt(buf);
-        ignoreHotbar = buf.readBoolean();
-        dump = buf.readBoolean();
-        teTypes = ((PacketBufferExt) buf).readRegistryIdArray();
-        minSlotCount = buf.readInt();
+        this(buf.readBoolean(), buf.readBoolean(), buf.readList(buf1 ->
+            buf1.readById(BuiltInRegistries.BLOCK_ENTITY_TYPE)), buf.readInt());
     }
 
-    public C2SPacketRequestDropoff(boolean ignoreHotbar, boolean dump, List<BlockEntityType<?>> teTypes,
-            int minSlotCount) {
-        this.ignoreHotbar = ignoreHotbar;
-        this.dump = dump;
-        this.teTypes = teTypes;
-        this.minSlotCount = minSlotCount;
-    }
+    public void handleServer(ServerPlayer player) {
+        Set<SuccedableInventoryData> nearbyInventories = getNearbyInventories(player);
+        final MutableInt itemCounter  = new MutableInt();
+        nearbyInventories.forEach(inventoryData -> {
+            inventoryData.blockEntity.getCapability(ForgeCapabilities.ITEM_HANDLER)
+                .ifPresent(
+                    target -> {
+                        if (dump) {
+                            itemCounter.add(dropOff(player, target, inventoryData));
+                        } else {
+                            itemCounter.add(dropOffExisting(player, target, inventoryData));
+                        }
+                    });
+        });
 
-    public void handle(Supplier<NetworkEvent.Context> ctx) {
-        ctx.get().enqueueWork(() -> {
-            ServerPlayer player = ctx.get().getSender();
-            Set<SuccedableInventoryData> nearbyInventories = getNearbyInventories(player);
+        List<RendererCubeTarget> rendererCubeTargets = new ArrayList<>();
+        int affectedContainers = 0;
+        player.containerMenu.broadcastChanges();
 
-            nearbyInventories.forEach(inventoryData -> {
-                inventoryData.blockEntity.getCapability(ForgeCapabilities.ITEM_HANDLER)
-                        .ifPresent(
-                                target -> {
-                                    if (dump) {
-                                        dropOff(player, target, inventoryData);
-                                    } else {
-                                        dropOffExisting(player, target, inventoryData);
-                                    }
-                                });
-            });
+        for (SuccedableInventoryData inventoryData : nearbyInventories) {
+            int color;
 
-            List<RendererCubeTarget> rendererCubeTargets = new ArrayList<>();
-            int affectedContainers = 0;
-            player.containerMenu.broadcastChanges();
-
-            for (SuccedableInventoryData inventoryData : nearbyInventories) {
-                int color;
-
-                if (inventoryData.success) {
-                    affectedContainers++;
-                    color = 0x00FF00;
-                } else {
-                    color = 0xFF0000;
-                }
-
-                RendererCubeTarget rendererCubeTarget = new RendererCubeTarget(inventoryData.blockEntity.getBlockPos(),
-                        color);
-                rendererCubeTargets.add(rendererCubeTarget);
+            if (inventoryData.success) {
+                affectedContainers++;
+                color = 0x00FF00;
+            } else {
+                color = 0xFF0000;
             }
 
-            PacketHandler.INSTANCE.send(PacketDistributor.PLAYER.with(() -> player),
-                    new S2CReportPacket(itemsCounter, affectedContainers, nearbyInventories.size(),
-                            rendererCubeTargets));
-        });
-        ctx.get().setPacketHandled(true);
+            RendererCubeTarget rendererCubeTarget = new RendererCubeTarget(inventoryData.blockEntity.getBlockPos(),
+                color);
+            rendererCubeTargets.add(rendererCubeTarget);
+        }
+
+        PacketHandler.INSTANCE.send(PacketDistributor.PLAYER.with(() -> player),
+            new S2CReportPacket(itemCounter.intValue(), affectedContainers, nearbyInventories.size(),
+                rendererCubeTargets));
+
     }
 
-    public void dropOff(Player player, IItemHandler target, SuccedableInventoryData data) {
+    public int dropOff(Player player, IItemHandler target, SuccedableInventoryData data) {
         IItemHandler playerstacks = new InvWrapper(player.getInventory());
+        int itemsCounter = 0;
         for (int i = 0; i < 36; ++i) {
             if (ignoreHotbar && i < 9)
                 continue;
             ItemStack playerstack = playerstacks.getStackInSlot(i);
 
-            if (playerstack.isEmpty() || ItemStackUtils.isFavorited(playerstack))
+            if (playerstack.isEmpty() || ItemStackUtils.isFavorite(playerstack))
                 continue;
             data.setSuccessful();
             itemsCounter += playerstack.getCount();
@@ -120,19 +96,21 @@ public class C2SPacketRequestDropoff {
                 playerstacks.insertItem(i, rem, false);
             }
         }
+        return itemsCounter;
     }
 
-    public void dropOffExisting(Player player, IItemHandler target, SuccedableInventoryData data) {
+    public int dropOffExisting(Player player, IItemHandler target, SuccedableInventoryData data) {
         IItemHandler playerstacks = new InvWrapper(player.getInventory());
+        int itemsCounter = 0;
         for (int i = 0; i < 36; ++i) {
             if (ignoreHotbar && i < 9)
                 continue;
             ItemStack playerstack = playerstacks.getStackInSlot(i);
-            if (playerstack.isEmpty() || ItemStackUtils.isFavorited(playerstack))
+            if (playerstack.isEmpty() || ItemStackUtils.isFavorite(playerstack))
                 continue;
             boolean hasExistingStack = IntStream.range(0, target.getSlots()).mapToObj(target::getStackInSlot)
-                    .filter(existing -> !existing.isEmpty())
-                    .anyMatch(existing -> existing.getItem() == playerstack.getItem());
+                .filter(existing -> !existing.isEmpty())
+                .anyMatch(existing -> existing.getItem() == playerstack.getItem());
             if (!hasExistingStack)
                 continue;
             data.setSuccessful();
@@ -148,7 +126,7 @@ public class C2SPacketRequestDropoff {
                     numEmptySlots++;
                 }
                 // If the current slot in chest inventory is different object, don't attempt to stack.
-                if (rem.getItem() != target.getStackInSlot(j).getItem()){
+                if (rem.getItem() != target.getStackInSlot(j).getItem()) {
                     continue;
                 }
 
@@ -157,7 +135,7 @@ public class C2SPacketRequestDropoff {
                     break;
             }
             // Attempt to populate all the empty slots
-            for (int j = 0; j < numEmptySlots; ++j){
+            for (int j = 0; j < numEmptySlots; ++j) {
                 rem = target.insertItem(emptySlots[j], rem, false);
                 if (rem.isEmpty())
                     break;
@@ -170,6 +148,7 @@ public class C2SPacketRequestDropoff {
                 playerstacks.insertItem(i, rem, false);
             }
         }
+        return itemsCounter;
     }
 
     public Set<SuccedableInventoryData> getNearbyInventories(ServerPlayer player) {
@@ -187,21 +166,21 @@ public class C2SPacketRequestDropoff {
 
         Level world = player.level();
         return BlockPos.betweenClosedStream(minX, minY, minZ, maxX, maxY, maxZ)
-        .map(world::getBlockEntity)
-        .filter(Objects::nonNull)
-                .filter(tileEntity -> tileEntity.getCapability(ForgeCapabilities.ITEM_HANDLER)
-                        .filter(iItemHandler -> iItemHandler.getSlots() >= minSlotCount)
-                        .isPresent())
-                .filter(tileEntity -> !teTypes.contains(tileEntity.getType()))
-                .map(SuccedableInventoryData::new)
-                .collect(Collectors.toSet());
+            .map(world::getBlockEntity)
+            .filter(Objects::nonNull)
+            .filter(tileEntity -> tileEntity.getCapability(ForgeCapabilities.ITEM_HANDLER)
+                .filter(iItemHandler -> iItemHandler.getSlots() >= minSlotCount)
+                .isPresent())
+            .filter(tileEntity -> !teTypes.contains(tileEntity.getType()))
+            .map(SuccedableInventoryData::new)
+            .collect(Collectors.toSet());
     }
 
-    public void encode(FriendlyByteBuf buf) {
-        buf = new PacketBufferExt(buf);
+    public void write(FriendlyByteBuf buf) {
         buf.writeBoolean(ignoreHotbar);
         buf.writeBoolean(dump);
-        ((PacketBufferExt) buf).writeRegistryIdArray(teTypes);
+        buf.writeCollection(teTypes, (buf1, blockEntityType) ->
+            buf1.writeId(BuiltInRegistries.BLOCK_ENTITY_TYPE, blockEntityType));
         buf.writeInt(minSlotCount);
     }
 }

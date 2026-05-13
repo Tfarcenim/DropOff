@@ -1,58 +1,30 @@
 package tfar.quickstack.networking;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Supplier;
 
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.network.NetworkEvent;
 import tfar.quickstack.client.RendererCubeTarget;
 import tfar.quickstack.task.ReportTask;
 
-public class S2CReportPacket {
-
-    private int itemsCounter;
-    private int affectedContainers;
-    private int totalContainers;
-    private List<RendererCubeTarget> rendererCubeTargets = new ArrayList<>();
-
-    /**
-     * Leave public default constructor for Netty.
-     */
-    public S2CReportPacket() {
-    }
+public record S2CReportPacket(int itemsCounter, int affectedContainers, int totalContainers,
+                              List<RendererCubeTarget> rendererCubeTargets) implements S2CPacket {
 
     public S2CReportPacket(FriendlyByteBuf buf) {
-        itemsCounter = buf.readInt();
-        affectedContainers = buf.readInt();
-        totalContainers = buf.readInt();
-
-        PacketBufferExt packetBufferExt = new PacketBufferExt(buf);
-        rendererCubeTargets = packetBufferExt.readRendererCubeTargets();
+        this(buf.readInt(), buf.readInt(), buf.readInt(), buf.readList(RendererCubeTarget::read));
     }
 
-    S2CReportPacket(int itemsCounter, int affectedContainers, int totalContainers,
-            List<RendererCubeTarget> rendererCubeTargets) {
-        this.itemsCounter = itemsCounter;
-        this.affectedContainers = affectedContainers;
-        this.totalContainers = totalContainers;
-        this.rendererCubeTargets = rendererCubeTargets;
-    }
-
-    public void encode(FriendlyByteBuf buf) {
+    public void write(FriendlyByteBuf buf) {
         buf.writeInt(itemsCounter);
         buf.writeInt(affectedContainers);
         buf.writeInt(totalContainers);
 
-        PacketBufferExt packetBufferExt = new PacketBufferExt(buf);
-        packetBufferExt.writeRendererCubeTargets(rendererCubeTargets);
+        buf.writeCollection(rendererCubeTargets, (buf1, rendererCubeTarget) ->
+            rendererCubeTarget.write(buf1));
     }
 
-    public void handle(Supplier<NetworkEvent.Context> ctx) {
+    public void handleClient() {
         ReportTask reportTask = new ReportTask(itemsCounter, affectedContainers,
-                totalContainers, rendererCubeTargets);
-
+            totalContainers, rendererCubeTargets);
         reportTask.run();
-        ctx.get().setPacketHandled(true);
     }
 }

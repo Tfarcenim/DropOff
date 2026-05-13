@@ -18,17 +18,16 @@ public class RenderWorldLastEventHandler {
 
     @SubscribeEvent
     public static void onRenderWorldLastEvent(RenderLevelStageEvent event) {
-        RendererCube.INSTANCE.tryToRender(event);
+        RendererCube.tryToRender(event);
     }
 
     public static class RendererCube {
 
-        public static final RendererCube INSTANCE = new RendererCube();
-        private List<RendererCubeTarget> rendererCubeTargets = new ArrayList<>();
-        private long lastDrawTime;
+        private static List<RendererCubeTarget> rendererCubeTargets = new ArrayList<>();
+        private static long lastDrawTime;
 
-        public void draw(List<RendererCubeTarget> rendererCubeTargets) {
-            this.rendererCubeTargets = rendererCubeTargets;
+        public static void draw(List<RendererCubeTarget> rendererCubeTargets) {
+            RendererCube.rendererCubeTargets = rendererCubeTargets;
             lastDrawTime = System.currentTimeMillis();
         }
 
@@ -37,7 +36,7 @@ public class RenderWorldLastEventHandler {
          * It does nothing until the draw() method assign the necessary delay to the
          * global field named currentTime.
          */
-        void tryToRender(RenderLevelStageEvent event) {
+        static void tryToRender(RenderLevelStageEvent event) {
             long timeWhenDissapear = lastDrawTime + DropOffConfig.Client.highlightDelay.get();
             if ((System.currentTimeMillis() >= timeWhenDissapear) && DropOffConfig.Client.highlightDelay.get() >= 0L) {
                 return;

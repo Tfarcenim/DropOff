@@ -10,6 +10,7 @@ import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.HorseInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
@@ -22,9 +23,9 @@ import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.Mod.EventBusSubscriber.Bus;
-import net.minecraftforge.registries.ForgeRegistries;
 import tfar.quickstack.DropOff;
 import tfar.quickstack.client.ClientUtils;
+import tfar.quickstack.client.DropoffButton;
 import tfar.quickstack.config.DropOffConfig;
 import tfar.quickstack.networking.C2SFavoriteItemPacket;
 import tfar.quickstack.networking.PacketHandler;
@@ -54,13 +55,13 @@ public class GuiEventHandler {
 				+ (isCreative ? DropOffConfig.Client.creativeInventoryButtonYOffset.get()
 						: DropOffConfig.Client.survivalInventoryButtonYOffset.get());
 		if (DropOffConfig.Client.enableDump.get()) {
-            Button dump = Button.builder(Component.literal("^"),b -> actionPerformed(true))
-                .pos(xPos, yPos).size(10,14).tooltip(Tooltip.create(Component.translatable("dropoff.dump_nearby"))).build();
+            DropoffButton dump = new DropoffButton(Button.builder(Component.literal("^"), b -> actionPerformed(true))
+                .pos(xPos, yPos).size(10,14).tooltip(Tooltip.create(Component.translatable("dropoff.dump_nearby"))));
             event.addListener(dump);
 		}
 
-		Button deposit = Button.builder(Component.literal("^"),b -> actionPerformed(false))
-        .pos(xPos + 12, yPos).size(10,14).tooltip(Tooltip.create(Component.translatable("dropoff.quick_stack"))).build();
+		DropoffButton deposit = new DropoffButton(Button.builder(Component.literal("^"),b -> actionPerformed(false))
+        .pos(xPos + 12, yPos).size(10,14).tooltip(Tooltip.create(Component.translatable("dropoff.quick_stack"))));
 		event.addListener(deposit);
 	}
 
@@ -69,7 +70,7 @@ public class GuiEventHandler {
 	}
 
 	@SubscribeEvent
-	public static <T extends AbstractContainerMenu> void onItemClick(ScreenEvent.MouseButtonPressed.Pre event) {
+	public static void onItemClick(ScreenEvent.MouseButtonPressed.Pre event) {
 		if (!canDisplay(event.getScreen()) || !(event.getScreen() instanceof InventoryScreen containerScreen)
 				|| !Screen.hasControlDown())
 			return;
@@ -94,7 +95,7 @@ public class GuiEventHandler {
 			for (int j = 0; j < 9; ++j) {
 				Slot slot = playerContainer.slots.get(j + (k + 1) * 9);
 				ItemStack stack = slot.getItem();
-				if (ItemStackUtils.isFavorited(stack)) {
+				if (ItemStackUtils.isFavorite(stack)) {
 					int xoffset = 8;
 					int yoffset = 84;
 					matrices.fill(containerScreen.getGuiLeft() + j * 18 + xoffset,
@@ -109,7 +110,7 @@ public class GuiEventHandler {
 
 		for (int i = 0; i < 9; ++i) {
 			ItemStack stack = stacks.get(i + 36);
-			if (ItemStackUtils.isFavorited(stack)) {
+			if (ItemStackUtils.isFavorite(stack)) {
 				int xoffset = 8;
 				int yoffset = 142;
 				matrices.fill(containerScreen.getGuiLeft() + i * 18 + xoffset,
@@ -135,7 +136,7 @@ public class GuiEventHandler {
 		if (screen instanceof HorseInventoryScreen)
 			return false;
 		try {
-			var screenMenuRegistry = ForgeRegistries.MENU_TYPES.getKey(screen.getMenu().getType()).toString();
+			var screenMenuRegistry = BuiltInRegistries.MENU.getKey(screen.getMenu().getType()).toString();
 			return DropOffConfig.Client.whitelistedContainers.get().contains(screenMenuRegistry);
 		} catch (Exception e) {
 			Class<?> clazz = screen.getMenu().getClass();
@@ -151,7 +152,7 @@ public class GuiEventHandler {
 	@SubscribeEvent
 	public static void tooltip(ItemTooltipEvent e) {
 		ItemStack stack = e.getItemStack();
-		if (ItemStackUtils.isFavorited(stack)) {
+		if (ItemStackUtils.isFavorite(stack)) {
 			e.getToolTip().add(Component.translatable("dropoff.tooltip.favorited"));
 		}
 	}

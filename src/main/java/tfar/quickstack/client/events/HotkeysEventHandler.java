@@ -15,12 +15,16 @@ public class HotkeysEventHandler {
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent event) {
         if (event.phase == TickEvent.Phase.END) {
-            while (HotkeysRegistrar.DEPOSIT_MAPPING.get().consumeClick()) {
-                ClientUtils.sendNoSpectator(false);
-            }
-            while (HotkeysRegistrar.DUMP_MAPPING.get().consumeClick()) {
-                ClientUtils.sendNoSpectator(true);
-            }
+            tick();
+        }
+    }
+
+    public static void tick(){
+        while (HotkeysRegistrar.DEPOSIT_MAPPING.consumeClick()) {
+            ClientUtils.sendNoSpectator(false);
+        }
+        while (HotkeysRegistrar.DUMP_MAPPING.consumeClick()) {
+            ClientUtils.sendNoSpectator(true);
         }
     }
 }
