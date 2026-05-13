@@ -1,0 +1,7 @@
+{
+  "dropoff.dump_nearby" : "直接存放到附近箱子",
+  "dropoff.quick_stack" : "快速堆叠到附近箱子",
+  "dropoff.key.dump": "直接存放",
+  "dropoff.key.deposit": "快速堆叠",
+  "dropoff.tooltip.favorited" : "已收藏！"
+}
